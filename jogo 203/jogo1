@@ -1,0 +1,256 @@
+import pygame
+import random
+import sys
+
+# Inicialização do Pygame
+pygame.init()
+
+# Configurações da Tela
+LARGURA = 800
+ALTURA = 600
+tela = pygame.display.set_mode((LARGURA, ALTURA))
+pygame.display.set_caption("Lucas contra o Monstro de Lixo")
+clock = pygame.time.Clock()
+
+# Cores
+AZUL = (100, 149, 237)
+VERDE = (34, 139, 34)
+MARROM = (139, 69, 19)
+VERMELHO = (255, 0, 0)
+CINZA = (128, 128, 128)
+BRANCO = (255, 255, 255)
+PRETO = (0, 0, 0)
+
+# --- CLASSES DO JOGO ---
+
+class Jogador(pygame.sprite.Sprite):
+    def __init__(self):
+        super().__init__()
+        self.image = pygame.Surface((40, 60))
+        self.image.fill((0, 0, 255)) 
+        self.rect = self.image.get_rect()
+        self.rect.x = 100
+        self.rect.y = 400
+        self.vel_x = 0
+        self.vel_y = 0
+        self.no_chao = False
+        self.tem_lixo = False
+
+    def update(self, plataformas):
+        self.vel_y += 0.8
+        self.rect.x += self.vel_x
+        self.checar_colisao_horizontal(plataformas)
+        self.rect.y += self.vel_y
+        self.checar_colisao_vertical(plataformas)
+        if self.rect.left < 0: self.rect.left = 0
+        if self.rect.right > LARGURA: self.rect.right = LARGURA
+
+    def pular(self):
+        if self.no_chao:
+            self.vel_y = -15
+            self.no_chao = False
+
+    def checar_colisao_horizontal(self, plataformas):
+        lista_colisoes = pygame.sprite.spritecollide(self, plataformas, False)
+        for plat in lista_colisoes:
+            if self.vel_x > 0: self.rect.right = plat.rect.left
+            elif self.vel_x < 0: self.rect.left = plat.rect.right
+
+    def checar_colisao_vertical(self, plataformas):
+        lista_colisoes = pygame.sprite.spritecollide(self, plataformas, False)
+        self.no_chao = False
+        for plat in lista_colisoes:
+            if self.vel_y > 0:
+                self.rect.bottom = plat.rect.top
+                self.vel_y = 0
+                self.no_chao = True
+            elif self.vel_y < 0:
+                self.rect.top = plat.rect.bottom
+                self.vel_y = 0
+
+class Monstro(pygame.sprite.Sprite):
+    def __init__(self):
+        super().__init__()
+        self.image = pygame.Surface((100, 120))
+        self.image.fill(VERDE) 
+        self.rect = self.image.get_rect()
+        self.rect.x = 650
+        self.rect.y = 330
+        self.vida = 100
+        self.tempo_ataque = 0
+
+    def update(self, grupo_lixos):
+        self.tempo_ataque += 1
+        if self.tempo_ataque >= 90 and self.vida > 0:
+            self.atacar(grupo_lixos)
+            self.tempo_ataque = 0
+
+    def atacar(self, grupo_lixos):
+        lixo = Lixo(self.rect.left, self.rect.centery)
+        grupo_lixos.add(lixo)
+
+class Lixo(pygame.sprite.Sprite):
+    def __init__(self, x, y):
+        super().__init__()
+        self.image = pygame.Surface((20, 20))
+        self.image.fill(CINZA)
+        self.rect = self.image.get_rect()
+        self.rect.x = x
+        self.rect.y = y
+        self.vel_x = random.randint(-7, -4)
+        self.vel_y = random.randint(-10, -5)
+        self.no_chao = False
+
+    def update(self, plataformas):
+        if not self.no_chao:
+            self.vel_y += 0.5 
+            self.rect.x += self.vel_x
+            self.rect.y += self.vel_y
+
+        lista_colisoes = pygame.sprite.spritecollide(self, plataformas, False)
+        for plat in lista_colisoes:
+            if self.vel_y > 0 and self.rect.bottom <= plat.rect.top + 10:
+                self.rect.bottom = plat.rect.top
+                self.no_chao = True
+                self.vel_x = 0
+                self.vel_y = 0
+
+        if self.rect.right < 0 or self.rect.top > ALTURA:
+            self.kill()
+
+class Plataforma(pygame.sprite.Sprite):
+    def __init__(self, x, y, largura, altura):
+        super().__init__()
+        self.image = pygame.Surface((largura, altura))
+        self.image.fill(MARROM)
+        self.rect = self.image.get_rect()
+        self.rect.x = x
+        self.rect.y = y
+
+class Lixeira(pygame.sprite.Sprite):
+    def __init__(self, x, y):
+        super().__init__()
+        self.image = pygame.Surface((40, 50))
+        self.image.fill((0, 200, 0)) 
+        self.rect = self.image.get_rect()
+        self.rect.x = x
+        self.rect.y = y
+
+# --- CONFIGURAÇÃO INICIAL DOS GRUPOS ---
+
+todas_sprites = pygame.sprite.Group()
+plataformas = pygame.sprite.Group()
+grupo_lixos = pygame.sprite.Group()
+
+chao = Plataforma(0, 450, LARGURA, 150)
+plat1 = Plataforma(300, 320, 200, 30)
+plataformas.add(chao, plat1)
+todas_sprites.add(chao, plat1)
+
+lucas = Jogador()
+monstro = Monstro()
+lixeira = Lixeira(380, 270) 
+
+todas_sprites.add(lucas, monstro, lixeira)
+
+# Fontes para os textos
+fonte_grande = pygame.font.SysFont("Arial", 40, bold=True)
+fonte_media = pygame.font.SysFont("Arial", 24)
+pontos_reciclagem = 0
+
+# --- ESTADO INICIAL DO JOGO ---
+estado = "MENU"  # O jogo começa na tela de Menu!
+
+# --- LOOP PRINCIPAL ---
+rodando = True
+while rodando:
+    clock.tick(60)
+    
+    # 1. Captura de Eventos (Independente do estado)
+    for evento in pygame.event.get():
+        if evento.type == pygame.QUIT:
+            rodando = False
+            
+        # Controles se estiver no MENU
+        if estado == "MENU":
+            if evento.type == pygame.KEYDOWN:
+                if evento.key == pygame.K_RETURN:  # Tecla Enter inicia o jogo
+                    estado = "JOGANDO"
+                    
+        # Controles se estiver JOGANDO
+        elif estado == "JOGANDO":
+            if evento.type == pygame.KEYDOWN:
+                if evento.key == pygame.K_LEFT or evento.key == pygame.K_a:
+                    lucas.vel_x = -5
+                if evento.key == pygame.K_RIGHT or evento.key == pygame.K_d:
+                    lucas.vel_x = 5
+                if evento.key == pygame.K_SPACE or evento.key == pygame.K_w:
+                    lucas.pular()
+                    
+            if evento.type == pygame.KEYUP:
+                if (evento.key == pygame.K_LEFT or evento.key == pygame.K_a) and lucas.vel_x < 0:
+                    lucas.vel_x = 0
+                if (evento.key == pygame.K_RIGHT or evento.key == pygame.K_d) and lucas.vel_x > 0:
+                    lucas.vel_x = 0
+
+    # 2. Lógica e Desenho baseado no Estado Atual
+    if estado == "MENU":
+        # Desenha o fundo do menu
+        tela.fill(PRETO)
+        
+        # Textos da tela inicial
+        titulo = fonte_grande.render("LUCAS CONTRA O MONSTRO DE LIXO", True, VERDE)
+        instrucoes = fonte_media.render("Pressione ENTER para começar", True, BRANCO)
+        como_jogar_1 = fonte_media.render("Setas / AD: Movem | Espaço / W: Pula", True, BRANCO)
+        como_jogar_2 = fonte_media.render("Pegue os lixos do chão e leve até a lixeira verde!", True, AZUL)
+        
+        # Posicionando os textos centralizados
+        tela.blit(titulo, (LARGURA // 2 - titulo.get_width() // 2, 150))
+        tela.blit(instrucoes, (LARGURA // 2 - instrucoes.get_width() // 2, 280))
+        tela.blit(como_jogar_1, (LARGURA // 2 - como_jogar_1.get_width() // 2, 380))
+        tela.blit(como_jogar_2, (LARGURA // 2 - como_jogar_2.get_width() // 2, 420))
+
+    elif estado == "JOGANDO":
+        # Atualizações de Lógica
+        if monstro.vida > 0:
+            lucas.update(plataformas)
+            monstro.update(grupo_lixos)
+            grupo_lixos.update(plataformas)
+
+        # Colisões
+        lixos_colididos = pygame.sprite.spritecollide(lucas, grupo_lixos, False)
+        for lixo in lixos_colididos:
+            if lixo.no_chao and not lucas.tem_lixo:
+                lucas.tem_lixo = True
+                lixo.kill()
+            elif not lixo.no_chao:
+                lucas.rect.x -= 30 
+                lixo.kill()
+
+        if lucas.tem_lixo and lucas.rect.colliderect(lixeira.rect):
+            lucas.tem_lixo = False
+            monstro.vida -= 10 
+            pontos_reciclagem += 1
+
+        # Desenho na Tela do Jogo
+        tela.fill(AZUL) 
+        todas_sprites.draw(tela)
+        grupo_lixos.draw(tela)
+
+        # Interface do Jogo (HUD)
+        texto_vida = fonte_media.render(f"Vida do Monstro de Lixo: {max(0, monstro.vida)}%", True, VERMELHO)
+        texto_inventario = fonte_media.render("Mãos: Sacola de Lixo" if lucas.tem_lixo else "Mãos: Vazias", True, BRANCO)
+        texto_pontos = fonte_media.render(f"Lixos Reciclados: {pontos_reciclagem}", True, BRANCO)
+        
+        tela.blit(texto_vida, (15, 15))
+        tela.blit(texto_inventario, (15, 45))
+        tela.blit(texto_pontos, (15, 75))
+
+        if monstro.vida <= 0:
+            texto_vitoria = fonte_grande.render("PARABÉNS! VOCÊ LIMPOU O IGARAPÉ!", True, VERDE)
+            tela.blit(texto_vitoria, (LARGURA // 2 - texto_vitoria.get_width() // 2, ALTURA // 2))
+
+    pygame.display.flip()
+
+pygame.quit()
+sys.exit()

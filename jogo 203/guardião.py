@@ -1,0 +1,467 @@
+import pygame
+import random
+import sys
+import math
+import os  # CORRIGIDO: importado para lidar com pastas
+
+# Configurações iniciais
+pygame.init()
+pygame.mixer.init()
+
+LARGURA, ALTURA = 800, 600
+TELA = pygame.display.set_mode((LARGURA, ALTURA))
+pygame.display.set_caption("Guardiões do Igarapé - O Protetor da Natureza")
+RELOGIO = pygame.time.Clock()
+
+# ==========================================
+#        CARREGAR IMAGEM DE FUNDO (CORRIGIDO)
+# ==========================================
+IMAGEM_FUNDO = None
+try:
+    # Descobre o caminho da pasta onde o guardião.py está salvo (jogo 203)
+    diretorio_jogo = os.path.dirname(os.path.abspath(__file__))
+    
+    # Lista inteligente de caminhos possíveis para tentar de qualquer jeito
+    caminhos_possiveis = [
+        os.path.join(diretorio_jogo, "background", "fundo.png"),
+        os.path.join(diretorio_jogo, "background", "fundo.png.png"),
+        os.path.join(diretorio_jogo, "fundo.png"),
+        os.path.join(diretorio_jogo, "fundo.png.png")
+    ]
+
+    for caminho in caminhos_possiveis:
+        if os.path.exists(caminho):
+            IMAGEM_FUNDO = pygame.image.load(caminho)
+            IMAGEM_FUNDO = pygame.transform.scale(IMAGEM_FUNDO, (LARGURA, ALTURA))
+            print(f"Sucesso: Imagem de fundo carregada de {caminho}!")
+            break
+
+    if IMAGEM_FUNDO is None:
+        print("Aviso: Nenhuma imagem encontrada. Usando fundo azul de backup.")
+except Exception as e:
+    print("Aviso: Erro ao tentar carregar imagem. Erro:", e)
+    IMAGEM_FUNDO = None
+
+# --- FONTES ---
+try:
+    FONTE_HUD = pygame.font.SysFont("Arial", 16, bold=True)
+    FONTE_LIXEIRA = pygame.font.SysFont("Arial", 12, bold=True)
+    FONTE_TITULO = pygame.font.SysFont("Arial", 36, bold=True)
+    FONTE_BOTOES = pygame.font.SysFont("Arial", 24, bold=True)
+except:
+    FONTE_HUD = pygame.font.Font(None, 22)
+    FONTE_LIXEIRA = pygame.font.Font(None, 16)
+    FONTE_TITULO = pygame.font.Font(None, 46)
+    FONTE_BOTOES = pygame.font.Font(None, 30)
+
+# 🎨 PALETA DE CORES COMPLETA
+AZUL_HUD = (10, 45, 90)
+AZUL_CEU = (135, 206, 235)
+AZUL_AGUA = (0, 105, 148)
+VERDE_GRAMA = (76, 154, 42)
+MARROM_TERRA = (110, 65, 35)
+VERMELHO_VIDA = (220, 20, 60)
+BRANCO = (255, 255, 255)
+PRETO = (0, 0, 0)
+
+# Cores dos Botões
+VERDE_BOTAO = (46, 139, 87)
+VERDE_BOTAO_HOVER = (60, 179, 113)
+VERMELHO_BOTAO_HOVER = (255, 69, 0)
+
+# Cores Oficiais da Reciclagem
+COR_PAPEL = (30, 144, 255)     # Azul
+COR_PLASTICO = (220, 20, 60)   # Vermelho
+COR_VIDRO = (34, 139, 34)      # Verde
+COR_METAL = (255, 215, 0)      # Amarelo
+COR_ORGANICO = (139, 69, 19)   # Marrom
+
+# Dicionário auxiliar para gerar tipos de lixos aleatórios
+TIPOS_LIXO = [
+    {"tipo": "papel", "cor": COR_PAPEL, "nome": "Paperboard"},
+    {"tipo": "plastico", "cor": COR_PLASTICO, "nome": "Garrafa PET"},
+    {"tipo": "vidro", "cor": COR_VIDRO, "nome": "Pote de Vidro"},
+    {"tipo": "metal", "cor": COR_METAL, "nome": "Lata de Alumínio"},
+    {"tipo": "organico", "cor": COR_ORGANICO, "nome": "Casca de Fruta"}
+]
+
+
+class Jogador:
+    def __init__(self):
+        self.largura = 30
+        self.altura = 50
+        self.x = 80
+        self.y = 450
+        self.vx = 0
+        self.vy = 0
+        self.no_chao = False
+        self.vidas = 3
+        self.velocidade = 5
+        self.forca_pulo = -12
+        self.lixo_carregado = None   
+
+    def controlar(self, teclas):
+        self.vx = 0
+        if teclas[pygame.K_LEFT]:
+            self.vx = -self.velocidade
+        if teclas[pygame.K_RIGHT]:
+            self.vx = self.velocidade
+
+    def pular(self):
+        if self.no_chao:
+            self.vy = self.forca_pulo
+            self.no_chao = False
+
+    def atualizar(self, plataformas):
+        self.vy += 0.6
+        if self.vy > 12: 
+            self.vy = 12
+
+        self.x += self.vx
+        if self.x < 0: self.x = 0
+        if self.x > LARGURA - self.largura: self.x = LARGURA - self.largura
+
+        self.y += self.vy
+        self.no_chao = False
+
+        corpo = pygame.Rect(self.x, self.y, self.largura, self.altura)
+        
+        for plat in plataformas:
+            if corpo.colliderect(plat):
+                if self.vy > 0 and self.y + self.altura - self.vy <= plat.top + 2:
+                    self.y = plat.top - self.altura
+                    self.vy = 0
+                    self.no_chao = True
+
+    def desenhar(self, tela):
+        # Corpo do Lucas
+        pygame.draw.rect(tela, (235, 170, 125), (self.x + 5, self.y, 20, 15)) 
+        pygame.draw.rect(tela, (0, 100, 220), (self.x, self.y + 15, self.largura, 20)) 
+        pygame.draw.rect(tela, MARROM_TERRA, (self.x + 2, self.y + 35, self.largura - 4, 15)) 
+        
+        # Se estiver carregando um lixo, mostra a cor dele acima do jogador
+        if self.lixo_carregado:
+            pygame.draw.circle(tela, self.lixo_carregado["cor"], (int(self.x + self.largura//2), int(self.y - 12)), 8)
+
+
+class Lixeira:
+    def __init__(self, x, y, tipo, cor, nome):
+        self.rect = pygame.Rect(x, y, 35, 50)
+        self.tipo = tipo
+        self.cor = cor
+        self.nome = nome
+
+    def desenhar(self, tela):
+        # Nome flutuante na parte SUPERIOR externa da lata
+        lbl = FONTE_LIXEIRA.render(self.nome, True, PRETO)
+        tela.blit(lbl, (self.rect.x + (self.rect.width // 2) - (lbl.get_width() // 2), self.rect.y - 18))
+
+        # Corpo da lixeira
+        pygame.draw.rect(tela, self.cor, self.rect, border_radius=3)
+        # Tampa da lixeira
+        pygame.draw.rect(tela, (50, 50, 50), (self.rect.x - 2, self.rect.y, self.rect.width + 4, 8))
+
+
+class LixoItem:
+    def __init__(self, x, y, info=None):
+        self.x = x
+        self.y = y
+        self.info = info if info else random.choice(TIPOS_LIXO)
+        self.coletado = False
+        self.raio = 12
+        self.onda = random.uniform(0, 10)
+        self.y_efeito = y
+
+    def atualizar(self):
+        self.y_efeito = self.y + math.sin(pygame.time.get_ticks() * 0.005 + self.onda) * 4
+
+    def desenhar(self, tela):
+        if not self.coletado:
+            px, py = int(self.x), int(self.y_efeito)
+            pygame.draw.circle(tela, self.info["cor"], (px, py), self.raio)
+            pygame.draw.circle(tela, BRANCO, (px, py), self.raio, 2)
+
+
+class LixoArremessado:
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+        self.vx = random.uniform(-5.5, -2.5)
+        self.vy = random.uniform(-8, -4)
+        self.largura = 16
+        self.altura = 16
+
+    def atualizar(self):
+        self.vy += 0.28  # Efeito da gravidade
+        self.x += self.vx
+        self.y += self.vy
+
+    def desenhar(self, tela):
+        pygame.draw.rect(tela, (65, 65, 65), (self.x, self.y, self.largura, self.altura), border_radius=2)
+        pygame.draw.rect(tela, (110, 110, 110), (self.x + 3, self.y + 3, self.largura - 6, self.altura - 6))
+
+
+class Jogo:
+    def __init__(self):
+        self.reiniciar()
+
+    def reiniciar(self):
+        self.jogador = Jogador()
+        self.pontuacao = 0
+        self.tempo = 155 
+        self.vida_chefe = 100
+        self.jogo_rodando = True
+        self.vitoria = False
+        self.mensagem_erro_tempo = 0
+
+        self.plataformas = [
+            pygame.Rect(0, 520, LARGURA, 80),          
+            pygame.Rect(0, 420, 300, 30),            
+            pygame.Rect(50, 320, 200, 30),           
+            pygame.Rect(250, 220, 260, 30),          
+            pygame.Rect(460, 400, 140, 30),          
+        ]
+
+        self.lixeiras = [
+            Lixeira(20, 470, "organico", COR_ORGANICO, "ORGÂNICO"), 
+            Lixeira(250, 370, "plastico", COR_PLASTICO, "PLÁSTICO"), 
+            Lixeira(60, 270, "vidro", COR_VIDRO, "VIDRO"),          
+            Lixeira(360, 170, "papel", COR_PAPEL, "PAPEL"),          
+            Lixeira(510, 350, "metal", COR_METAL, "METAL")          
+        ]
+
+        self.lixos = [LixoItem(180, 380), LixoItem(120, 280), LixoItem(320, 180)]
+        self.lixos_ataque = []  
+        self.tempo_ultimo_ataque = 0
+
+    def atualizar(self):
+        if not self.jogo_rodando: return
+
+        self.tempo -= 1 / 60
+        if self.tempo <= 0 or self.jogador.vidas <= 0:
+            self.tempo = 0
+            self.jogo_rodando = False
+            self.vitoria = False
+
+        self.jogador.atualizar(self.plataformas)
+        corpo_player = pygame.Rect(self.jogador.x, self.jogador.y, self.jogador.largura, self.jogador.altura)
+
+        if self.mensagem_erro_tempo > 0:
+            self.mensagem_erro_tempo -= 1
+
+        # --- ATAQUE DO MONSTRO DE LIXO ---
+        self.tempo_ultimo_ataque += 1
+        if self.tempo_ultimo_ataque >= 95 and self.vida_chefe > 0:
+            self.tempo_ultimo_ataque = 0
+            self.lixos_ataque.append(LixoArremessado(680, 370))
+
+        # Mecânica de captura do lixo do monstro
+        for proj in self.lixos_ataque[:]:
+            proj.atualizar()
+            proj_rect = pygame.Rect(proj.x, proj.y, proj.largura, proj.altura)
+            
+            if proj_rect.colliderect(corpo_player):
+                if self.jogador.lixo_carregado is None:
+                    self.jogador.lixo_carregado = random.choice(TIPOS_LIXO)
+                    if proj in self.lixos_ataque: self.lixos_ataque.remove(proj)
+                else:
+                    self.jogador.vidas -= 1
+                    if proj in self.lixos_ataque: self.lixos_ataque.remove(proj)
+                    
+            elif proj.y > 520: 
+                if proj in self.lixos_ataque: self.lixos_ataque.remove(proj)
+
+        # --- COLETA DE LIXOS NATURAIS ---
+        for lixo in self.lixos:
+            if not lixo.coletado:
+                lixo.atualizar()
+                txt_rect = pygame.Rect(lixo.x - lixo.raio, lixo.y - lixo.raio, lixo.raio*2, lixo.raio*2)
+                
+                if corpo_player.colliderect(txt_rect) and self.jogador.lixo_carregado is None:
+                    lixo.coletado = True
+                    self.jogador.lixo_carregado = lixo.info
+                    self.lixos.remove(lixo)
+                    break
+
+        # --- ENTREGA NAS LIXEIRAS ---
+        if self.jogador.lixo_carregado:
+            for lixeira in self.lixeiras:
+                if corpo_player.colliderect(lixeira.rect):
+                    if self.jogador.lixo_carregado["tipo"] == lixeira.tipo:
+                        self.vida_chefe -= 12.5
+                        self.pontuacao += 15
+                        self.jogador.lixo_carregado = None 
+                        self.mensagem_erro_tempo = 0
+                        
+                        if self.vida_chefe <= 0:
+                            self.vida_chefe = 0
+                            self.jogo_rodando = False
+                            self.vitoria = True
+                    else:
+                        self.mensagem_erro_tempo = 45 
+
+        if len(self.lixos) < 2:
+            self.lixos.append(LixoItem(random.randint(100, 500), random.choice([380, 280, 180])))
+
+    # CORREGIDO: Agora desenha a imagem corretamente e as plataformas sem misturar indentação
+    def desenhar_cenario(self, tela):
+        if IMAGEM_FUNDO is not None:
+            tela.blit(IMAGEM_FUNDO, (0, 0))
+        else:
+            tela.fill(AZUL_CEU)
+            pygame.draw.rect(tela, AZUL_AGUA, (450, 380, LARGURA - 450, 140))
+
+        for plat in self.plataformas:
+            pygame.draw.rect(tela, MARROM_TERRA, plat)
+            pygame.draw.rect(tela, VERDE_GRAMA, (plat.x, plat.y, plat.width, 8))
+
+        for lixeira in self.lixeiras:
+            lixeira.desenhar(tela)
+
+    def desenhar_hud(self, tela):
+        pygame.draw.rect(tela, AZUL_HUD, (15, 15, 180, 70), border_radius=8)
+        lbl_nome = FONTE_HUD.render("LUCAS", True, BRANCO)
+        tela.blit(lbl_nome, (25, 20))
+        for i in range(self.jogador.vidas):
+            pygame.draw.circle(tela, VERMELHO_VIDA, (35 + i * 22, 55), 7)
+
+        pygame.draw.rect(tela, AZUL_HUD, (210, 15, 200, 35), border_radius=6)
+        if self.jogador.lixo_carregado:
+            txt_item = f"Segurando: {self.jogador.lixo_carregado['nome']}"
+            lbl_item = FONTE_HUD.render(txt_item, True, self.jogador.lixo_carregado["cor"])
+        else:
+            lbl_item = FONTE_HUD.render("Pegue um lixo ou apare o do monstro!", True, (170, 170, 170))
+        tela.blit(lbl_item, (215, 23))
+
+        pygame.draw.rect(tela, AZUL_HUD, (210, 55, 110, 30), border_radius=6)
+        lbl_pts = FONTE_HUD.render(f"Pts: {self.pontuacao}", True, BRANCO)
+        tela.blit(lbl_pts, (220, 61))
+
+        pygame.draw.rect(tela, AZUL_HUD, (540, 15, 120, 40), border_radius=8)
+        minutos = int(self.tempo) // 60
+        segundos = int(self.tempo) % 60
+        lbl_tempo = FONTE_HUD.render(f"⏱ {minutos:02d}:{segundos:02d}", True, BRANCO)
+        tela.blit(lbl_tempo, (555, 23))
+
+        pygame.draw.rect(tela, AZUL_HUD, (520, 65, 260, 50), border_radius=8)
+        lbl_monstro = FONTE_HUD.render("MONSTRO DE LIXO", True, BRANCO)
+        tela.blit(lbl_monstro, (530, 70))
+        pygame.draw.rect(tela, (50, 0, 0), (530, 95, 240, 12))
+        if self.vida_chefe > 0:
+            pygame.draw.rect(tela, VERMELHO_VIDA, (530, 95, int(self.vida_chefe * 2.4), 12))
+
+    def desenhar(self, tela):
+        self.desenhar_cenario(tela)
+
+        for lixeira in self.lixeiras:
+            if self.jogador.lixo_carregado and self.jogador.lixo_carregado["tipo"] == lixeira.tipo:
+                seta_y = lixeira.rect.y - 32 + math.sin(pygame.time.get_ticks() * 0.01) * 3
+                pygame.draw.polygon(tela, lixeira.cor, [(lixeira.rect.centerx, seta_y + 8), (lixeira.rect.centerx - 6, seta_y), (lixeira.rect.centerx + 6, seta_y)])
+
+        for lixo in self.lixos: lixo.desenhar(tela)
+        for proj in self.lixos_ataque: proj.desenhar(tela)
+        
+        self.jogador.desenhar(tela)
+
+        if self.vida_chefe > 0:
+            pygame.draw.circle(tela, (45, 65, 45), (700, 400), 55) 
+            pygame.draw.circle(tela, (255, 230, 50), (700, 345), 12) 
+            pygame.draw.circle(tela, (200, 0, 0), (685, 390), 5) 
+            pygame.draw.circle(tela, (200, 0, 0), (715, 390), 5) 
+
+        self.desenhar_hud(tela)
+
+        if self.mensagem_erro_tempo > 0:
+            lbl_err = FONTE_TITULO.render("LIXEIRA INCORRETA!", True, VERMELHO_VIDA)
+            tela.blit(lbl_err, (LARGURA // 2 - lbl_err.get_width() // 2, 140))
+
+        if not self.jogo_rodando:
+            s = pygame.Surface((LARGURA, ALTURA))
+            s.fill(PRETO)
+            s.set_alpha(200)
+            tela.blit(s, (0, 0))
+
+            if self.vitoria:
+                msg = FONTE_TITULO.render("VITÓRIA! O IGARAPÉ FOI SALVO!", True, (0, 255, 0))
+            else:
+                msg = FONTE_TITULO.render("GAME OVER! O LIXO VENCEU.", True, VERMELHO_VIDA)
+
+            msg_r = FONTE_HUD.render("Pressione ESPAÇO para reiniciar", True, BRANCO)
+            tela.blit(msg, (LARGURA // 2 - msg.get_width() // 2, ALTURA // 2 - 30))
+            tela.blit(msg_r, (LARGURA // 2 - msg_r.get_width() // 2, ALTURA // 2 + 20))
+
+
+def tela_inicial():
+    menu = True
+    botao_iniciar = pygame.Rect(LARGURA // 2 - 100, 320, 200, 50)
+    botao_sair = pygame.Rect(LARGURA // 2 - 100, 400, 200, 50)
+
+    while menu:
+        mouse_pos = pygame.mouse.get_pos()
+        for evento in pygame.event.get():
+            if evento.type == pygame.QUIT:
+                pygame.quit()
+                sys.exit()
+            if evento.type == pygame.MOUSEBUTTONDOWN:
+                if evento.button == 1:
+                    if botao_iniciar.collidepoint(mouse_pos): menu = False
+                    if botao_sair.collidepoint(mouse_pos):
+                        pygame.quit()
+                        sys.exit()
+
+        TELA.fill(AZUL_CEU)
+        pygame.draw.rect(TELA, AZUL_AGUA, (0, 450, LARGURA, 150))
+        pygame.draw.rect(TELA, VERDE_GRAMA, (0, 430, LARGURA, 20))
+        
+        titulo_texto = FONTE_TITULO.render("GUARDIÕES DO IGARAPÉ", True, AZUL_HUD)
+        sub_texto = FONTE_HUD.render("Use as SETAS laterais para se mover e ESPAÇO para Pular", True, MARROM_TERRA)
+        TELA.blit(titulo_texto, (LARGURA // 2 - titulo_texto.get_width() // 2, 120))
+        TELA.blit(sub_texto, (LARGURA // 2 - sub_texto.get_width() // 2, 180))
+
+        if botao_iniciar.collidepoint(mouse_pos):
+            pygame.draw.rect(TELA, VERDE_BOTAO_HOVER, botao_iniciar, border_radius=10)
+        else:
+            pygame.draw.rect(TELA, VERDE_BOTAO, botao_iniciar, border_radius=10)
+            
+        if botao_sair.collidepoint(mouse_pos):
+            pygame.draw.rect(TELA, VERMELHO_BOTAO_HOVER, botao_sair, border_radius=10)
+        else:
+            pygame.draw.rect(TELA, VERMELHO_VIDA, botao_sair, border_radius=10)
+
+        txt_iniciar = FONTE_BOTOES.render("INICIAR", True, BRANCO)
+        txt_sair = FONTE_BOTOES.render("SAIR", True, BRANCO)
+        TELA.blit(txt_iniciar, (botao_iniciar.centerx - txt_iniciar.get_width() // 2, botao_iniciar.centery - txt_iniciar.get_height() // 2))
+        TELA.blit(txt_sair, (botao_sair.centerx - txt_sair.get_width() // 2, botao_sair.centery - txt_sair.get_height() // 2))
+
+        pygame.display.flip()
+        RELOGIO.tick(60)
+
+
+def main():
+    tela_inicial()
+    jogo = Jogo()
+    while True:
+        teclas = pygame.key.get_pressed()
+        for evento in pygame.event.get():
+            if evento.type == pygame.QUIT:
+                pygame.quit()
+                sys.exit()
+            
+            elif evento.type == pygame.KEYDOWN:
+                if evento.key in [pygame.K_SPACE, pygame.K_UP] and jogo.jogo_rodando:
+                    jogo.jogador.pular()
+                if evento.key == pygame.K_SPACE and not jogo.jogo_rodando:
+                    jogo.reiniciar()
+
+        if jogo.jogo_rodando:
+            jogo.jogador.controlar(teclas)
+            
+        jogo.atualizar()
+        jogo.desenhar(TELA)
+
+        pygame.display.flip()
+        RELOGIO.tick(60)
+
+
+if __name__ == "__main__":
+    main()
